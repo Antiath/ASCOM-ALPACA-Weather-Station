@@ -288,10 +288,6 @@
   <label for='ssid'>  SSID</label><br>	
   <input type='text' id='pwd' name='pwd'>
   <label for='pwd'>  Password</label><br>
-  <input type='text' id='ap_ssid' name='ap_ssid'>
-  <label for='ap_ssid'>  Built-in Acces Point SSID</label><br>	
-  <input type='text' id='ap_pwd' name='ap_pwd'>
-  <label for='ap_pwd'>  Built-in Acces Point Password</label><br>	  
 </form>
 <span style='color: #003366;'>
 
@@ -354,8 +350,6 @@ Save to EEPROM
 	if (isNumber(channelid.value)==false ) field_not_valid=true;
 	if (isEmpty(ssid.value)) field_not_valid=true;
 	if (isEmpty(pwd.value)) field_not_valid=true;
-	if (isEmpty(ap_ssid.value)) field_not_valid=true;
-	if (isEmpty(ap_pwd.value)) field_not_valid=true;
 	
 	if (field_not_valid==true)
 	{
@@ -389,9 +383,7 @@ Save to EEPROM
 	_APIkey: APIkey.value,
 	_channelid: channelid.value,
 	_ssid: ssid.value,
-	_pwd: pwd.value,
-	_apssid: ap_ssid.value,
-	_appwd: ap_pwd.value
+	_pwd: pwd.value
 	};
 	
 	Socket.send(JSON.stringify(msg));
@@ -407,8 +399,10 @@ Save to EEPROM
   function processCommand(event) {
     var dt = new Date();
 	var obj = JSON.parse(event.data);
-	
+
 if(obj.answer == 'SEND_READINGS'){
+
+
 	document.getElementById('tmp').innerHTML = obj.tmp;
 	document.getElementById('hum').innerHTML = obj.hum;
 	document.getElementById('dew').innerHTML = obj.dew;
@@ -425,15 +419,18 @@ if(obj.answer == 'SEND_READINGS'){
 	console.log(obj.rain);
 	console.log(obj.sqm);
 	console.log(obj.wind);
-	
+
+
 	if(starting==true)
 	{
 	button_get();
 	starting=false;
 	}
-	
+
+
 	}
 else if(obj.answer == 'SEND_EEPROM'){
+
   	var flag_state = '';
 	if(obj.flag == '1') {
 	  document.getElementById('flagCloud').checked = true;
@@ -457,9 +454,9 @@ else if(obj.answer == 'SEND_EEPROM'){
 	document.getElementById('channelid').value = obj.channelid;
 	document.getElementById('ssid').value = obj.ssid;
 	document.getElementById('pwd').value = obj.pwd;
-	document.getElementById('ap_ssid').value = obj.apssid;
-	document.getElementById('ap_pwd').value = obj.appwd;
+
 	}
+	
   }
   window.onload = function(event) {
     init();

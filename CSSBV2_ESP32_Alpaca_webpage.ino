@@ -9,47 +9,16 @@ For a first upload, you need to initialise the EEPROM. Go in the setup() fucntio
 Description
 ----------------------------------------------------------------------
 
-This project aims at developping a weather station that can be used to help astrophotographers monitoring the sky conditions.
-This file concerns the firmware of the esp32.
-
-It measures :
-
-    Temperature
-    Relative Humidity
-    Dew point
-    Cloud sensor measuring sky temperature (typicaly clear sky when below -15°C)
-    Rain detection
-    Sky quality meter measuring the luminosity of the sky background
-    Wind speed with a cup anemometer
-
-The station provides multiple ways to monitor and use those measurements. 
-    Local :
-    ASCOM/ALPACA interface. This is the primary way to use the station. It provides a server that ASCOM clients can connect to through the ALPACA protocol. It will be available as a device of the ascom type "Observing conditions" (in Nina, this is the Weather tab), after you gave to the client the local IP address of the station. You can then, for example, use a Safity monitor to read those measurements and determine a Safe/Unsafe flag that let your software know if it has to stop a photo session. Personnaly I use the ascom driver Environment Safery monitor for that (https://www.dehilster.info/astronomy/ascom_environment_safetymonitor.php).
-    A webpage that can display the last measuements and let you upload new parameters to the station. 
-    
-    Online :
-    ThingSpeak. This is an online platform that will make gather data and display nice graphs.
-
-
-----------------------------------------------------------------------
-Acknowlegments
-----------------------------------------------------------------------
+Code for an ASCOM-Alpaca Weather Station on the ESP32.
 
 It is heavily based on the firmware of Robert Brown and Holger M. for their ESP32 focuser MyFP2ESP32.
 Skimmed down and adapted for the ASCOM device type "Observing Conditions".
-The full list of authors on this particuler project is the folowing :
-	© Robert Brown 2014-2024. All Rights Reserved
-	© Holger M, 2019. All Rights Reserved
-	© Paul Porters, 2021. All Rights Reserved
-	© Marco Gulino, 2022-2023. All Rights Reserved. MultiAP code
-	© Eric Harant, 2023-2024. All Rights Reserved. LilyGo T-Motor code
-	© Pieter P - OTA code based on example from Pieter P
 Refer to https://sourceforge.net/projects/myfocuserpro2-esp32/ for the original code of MyFP2ESP32
 
 
 Remark: Not every properties and methods of the ASCOM specifications are implemented in this firmware (I don't use a pressure sensor for example) but it should be easy enough to adapt to your specific needs.
 
-Written by F.Mispelaer a.k.a Antiath (last update: 7-01-2024)
+Written by F.Mispelaer a.k.a Antiath (last update: 3-01-2024)
 Version : 0.1
 ---------------------------------------------------------------------------------------
 
@@ -116,7 +85,7 @@ SOFTWARE.
 //9 : SQM calibration factor darkfreq
 //20 : SQM calibration factor A
 //31 : Wind calibration factor to divide by 10
-//32 : Bool Cloud internal Temp(0) or SHT31(1)
+//32 : Bool Cloud internal Temp(1) or SHT31(0)
 //33 : K1
 //34 : K2
 //35 : K3
@@ -189,6 +158,7 @@ bool flag_sht31=false;
 
 const char* JSONPAGETYPE = "application/json";
 
+// SSID and password of Wifi connection:
 String ssid1, pwd1, ssid2, pwd2, AP_ssid, AP_pwd, myWriteAPIKey;
 unsigned long myChannelNumber;
 
@@ -239,12 +209,10 @@ delay(1000);
  EEPROM.put(37,100);
  EEPROM.put(38,0);
  EEPROM.put(39,0);
- StoreString(40,"SSID1");
- StoreString(60,"password");
- StoreString(120,"Access_Point_mode_SSID"); //Not yet implemented
- StoreString(140,"Access_Point_mode_password"); //Not yet implemented
- StoreString(160,"THINGSPEAK_READ_API_KEY");
- StoreString(180,"THINGSPEAK_CHANNEL_ID");
+ StoreString(40,"ssid"); //wifi ssid
+ StoreString(60,"password"); //wifi password
+ StoreString(160,"aaa"); //Thingspeak write api key
+ StoreString(180,"aaa"); //Thingspeak channel id
  EEPROM.commit();
 */
 
@@ -594,7 +562,7 @@ void UpdateWebpageReadings() {
   unsigned long now = millis();                            // read out the current "time" ("millis()" gives the time in ms since the Arduino started)
   if ((unsigned long)(now - previousMillis) > interval) {  // check if "interval" ms has passed since last time the clients were updated
 // Serial.print(heap_caps_get_free_size(MALLOC_CAP_8BIT));
-// Serial.print(" ");
+// Serial.print("blip");
 // Serial.println(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     String jsonString = "";                    // create a JSON string for sending data to the client
     StaticJsonDocument<300> doc;               // create a JSON container
@@ -618,7 +586,6 @@ void UpdateWebpageReadings() {
 void UpdateWebpageParam() {
   // read out the current "time" ("millis()" gives the time in ms since the Arduino started)
   // check if "interval" ms has passed since last time the clients were updated
-
   String jsonString = "";                    // create a JSON string for sending data to the client
   StaticJsonDocument<500> doc;               // create a JSON container
   JsonObject object = doc.to<JsonObject>();  // create a JSON Object
@@ -640,8 +607,8 @@ void UpdateWebpageParam() {
   object["channelid"] = String(myChannelNumber);
   object["ssid"] = ssid1;
   object["pwd"] = pwd1;
-  object["apssid"] = AP_ssid;
-  object["appwd"] = AP_pwd;
+  //object["apssid"] = AP_ssid;
+  //object["appwd"] = AP_pwd;
   serializeJson(doc, jsonString);      // convert JSON object to string
   Serial.println(jsonString);          // print JSON string to console for debug purposes (you can comment this out)
   webSocket.broadcastTXT(jsonString);  // send JSON string to clients
@@ -653,6 +620,7 @@ void UpdateWebpageParam() {
 // ----------------------------------------------------------------------
 
 void webSocketEvent(byte num, WStype_t type, uint8_t* payload, size_t length) {  // the parameters of this callback function are always the same -> num: id of the client who send the event, type: type of message, payload: actual data sent and length: length of payload
+    
   switch (type) {                                                                // switch on the type of information sent
     case WStype_DISCONNECTED:                                                    // if a client is disconnected, then type == WStype_DISCONNECTED
       Serial.println("Client " + String(num) + " disconnected");
@@ -679,6 +647,7 @@ void webSocketEvent(byte num, WStype_t type, uint8_t* payload, size_t length) { 
         //serializeJson(doc, Serial);  // convert JSON object to string
         //Serial.println(" ");
         String g_request = doc["request"].as<String>();
+        //Serial.println(g_request);
         if (g_request == "SEND_BACK") {//this request message tells the code to write data the the EEPROM.
 
           data = doc["_samplingperiod"].as<String>();
@@ -719,12 +688,6 @@ void webSocketEvent(byte num, WStype_t type, uint8_t* payload, size_t length) { 
           data = doc["_pwd"].as<String>();
           if ((data != "") && (data != pwd1)) StoreString(60, data);
 
-          data = doc["_apssid"].as<String>();
-          if ((data != "") && (data != AP_ssid)) StoreString(120, data);
-
-          data = doc["_appwd"].as<String>();
-          if ((data != "") && (data != AP_pwd)) StoreString(140, data);
-
           data = doc["_APIkey"].as<String>();
           if ((data != "") && (data != myWriteAPIKey)) StoreString(160, data);
 
@@ -736,6 +699,7 @@ void webSocketEvent(byte num, WStype_t type, uint8_t* payload, size_t length) { 
           ESP.restart();
 		  
         } else if (String(g_request) == "GET_EEPROM") {//this request message tells the code send back back parameters stored in the EEPROM
+       //Serial.println("blip"); 
           UpdateWebpageParam();
         }
       }
