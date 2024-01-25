@@ -15,9 +15,11 @@ It measures :
 - Wind speed with a cup anemometer
 
 The station provides multiple ways to monitor and use those measurements.
+
 Local :
 - ASCOM/ALPACA interface. This is the primary way to use the station. It provides a server that ASCOM clients can connect to through the ALPACA protocol. It will be available as a device of the ascom type "Observing conditions" (in Nina, this is the Weather tab), after you gave to the client the local IP address of the station. You can then, for example, use a Safity monitor to read those measurements and determine a Safe/Unsafe flag that let your software know if it has to stop a photo session. Personnaly I use the ascom driver Environment Safery monitor for that (https://www.dehilster.info/astronomy/ascom_environment_safetymonitor.php).
 - A webpage that can display the last measuements and let you upload new parameters to the station.
+  
 Online :
 - ThingSpeak. This is an online platform that will make gather data and display nice graphs.
 
