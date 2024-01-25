@@ -21,7 +21,7 @@ Local :
 - A webpage that can display the last measuements and let you upload new parameters to the station.
   
 Online :
-- ThingSpeak. This is an online platform that will make gather data and display nice graphs.
+- ThingSpeak. This is an online platform that will gather data and display nice graphs.
 
 ## Hardware
 
