@@ -51,17 +51,17 @@ You will need to initialize the EEPROM of the ESP32 in order to save your wifi c
 1) - Open CSSBV2_ESP32_Alpaca_webpage.ino and uncomment the EEPROM instructions in the setup() function (line 199 to 222).
    - Find the instructions
    ```
-   StoreString(40,"SSID1");
-   StoreString(60,"password");
+   StoreString(40,"ssid"); //wifi ssid
+   StoreString(60,"password"); //wifi password
    ```
    and put your SSID and wifi password between the "".
    Upload CSSBV2_ESP32_Alpaca_webpage.ino.
    If you have a thingspeak account, find the following lines
    ```
-   StoreString(160,"THINGSPEAK_READ_API_KEY");
-   StoreString(180,"THINGSPEAK_CHANNEL_ID");
+   StoreString(160,"aaa"); //Thingspeak write api key
+   StoreString(180,"aaa"); //Thingspeak channel id
    ```
-   and do the same with your API read key and Channel id (a 6 digit number presumably).
+   and do the same with your API write key and Channel id (a 6 digit number presumably).
    Then upload CSSBV2_ESP32_Alpaca_webpage.ino to the ESP32.
    Then recomment the section as it was before ( you can also just redownload the code and use this one) and upload CSSBV2_ESP32_Alpaca_webpage.ino again.
  
