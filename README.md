@@ -46,6 +46,7 @@ Microcontrollers :
 - Software : any ASCOM compliant software ( ex: NINA, APT, SGP, Voyager, PRISM) + the last ASCOM platform.
 
 ### Installing the firmware
+N.B : this firmware has been compiled with the ESp32 API v2.x.x. The API has since evolved and may not be compatible anymore. If it doesn't compile, check that your are using v2 and not a more recent revision of the API. I may migrate it in the future, or not. 
 
 Download the repo
 You will need to initialize the EEPROM of the ESP32 in order to save your wifi credentials into it.
