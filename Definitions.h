@@ -7,16 +7,18 @@
 
 #include <Arduino.h>
 // ASCOM CONST VARS
-#define ASCOMGUID "7e239e71-d304-4e7e-acda-3ff2e2b68515"
+#define ASCOMGUID1 "7e239e71-d304-4e7e-acda-3ff2e2b68515"
+#define ASCOMGUID2 "8f7e9b22-c5e1-4961-82f1-c29092b50048"
 #define ASCOMMAXIMUMARGS 10
 #define ASCOMNOTIMPLEMENTED 0x400
 
 // ASCOM MESSAGES
 #define ASCOMDESCRIPTION "\"Alpaca driver for CSSB stations\""
 #define ASCOMDRIVERINFO "\"Clear Sky Sensor Box ALPACA SERVER (c) F. Mispelaer. 2023\""
-#define ASCOMMANAGEMENTINFO "{\"ServerName\":\"CSSB_ESP32\",\"Manufacturer\":\"F. Mispelaer\",\"ManufacturerVersion\":\"v2.0\",\"Location\":\"Your ass\"}"
-#define ASCOMNAME "\"CSSB_Server\""
-#define ASCOMSERVERNOTFOUNDSTR "<html><head><title>ASCOM ALPACA Server</title></head><body><p>File system not started</p><p><a href=\"/setup/v1/focuser/0/setup\">Setup page</a></p></body></html>"
+#define ASCOMMANAGEMENTINFO "{\"ServerName\":\"CSSB_ESP32\",\"Manufacturer\":\"F. Mispelaer\",\"ManufacturerVersion\":\"v0.2\",\"Location\":\"Wokistan\"}"
+#define ASCOMNAME1 "\"CSSB Observing Conditions Server\""
+#define ASCOMNAME2 "\"CSSB Safety Monitor Server\""
+#define ASCOMSERVERNOTFOUNDSTR "<html><head><title>ASCOM ALPACA Server</title></head><body><p>File system not started</p><p><a href=\"/setup/v2/Observingconditions/0/setup\">Setup page</a></p></body></html>"
 #define T_NOTIMPLEMENTED "not implemented"
 
 // PORTS
@@ -43,5 +45,8 @@ extern byte adr[25];
 extern String sensornamelist[13];
 extern String sensordescriptionlist[13];
 extern double timesincelastupdatelist[13];
+
+extern const char* host;
+extern const char* serverIndex;
 extern const char* webpage;
 #endif
