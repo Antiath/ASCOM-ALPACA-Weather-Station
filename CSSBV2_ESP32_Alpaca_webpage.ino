@@ -68,6 +68,8 @@ SOFTWARE.
 #include <EEPROM.h>
 //Custom library
 #include "Definitions.h"
+#include <ESPmDNS.h>
+#include <Update.h>
 
 
 //----------------------------------------------------------------------
@@ -101,9 +103,14 @@ SOFTWARE.
 //140 : Acces Point pwd
 //160 : ThingSpeak Write API key
 //180 : ThingSpeak Id
+//210 : Cloud cover safety condition
+//211 : Rain safety condition
+//212 : Wind speed safety condition
 
+#define EEPROM_SIZE 300
+ 
 
-#define EEPROM_SIZE 201
+WebServer serverOTA(5555);
 
 //General CLASS INSTANCES----------------------------
 
@@ -143,6 +150,7 @@ float sqmval = 0;
 //Measure variables
 bool flagCloud;
 int K1, K2, K3, K4, K5, K6, K7;
+int cloudcond,raincond,windcond;
 float mySQMreading = 0.0;  // the SQM value
 const float area = 0.0092;  // surface area of sensor. Not used in the code but it is used  when calibrating A so I leave it as a note.
 float A = 20.278;          //calculus for FOV = 20°. //Unihedron A=17.6. You need to calibrate this value. Without a real Unihedron unit, the "easiest" is to use a telescope and a camera to measure the level of sky background, perform photometry with a reference star  and then translate that to mag/arcsec².
@@ -193,10 +201,10 @@ void setup() {
   EEPROM.begin(EEPROM_SIZE);
 delay(1000);
 
-/*
+
 //EEPROM INITIALISATION ----- Uncomment those lines if you wish to do a first initialisation of the EEPROM with values (to do once only at the first upload. After that, you will be able to update them in the webpage) 
 
- EEPROM.put(7,2);
+ /*EEPROM.put(7,2);
  EEPROM.put(8,60);
  StoreString(9,"0.032");
  StoreString(20,"20.278");
@@ -213,9 +221,12 @@ delay(1000);
  StoreString(60,"password"); //wifi password
  StoreString(160,"aaa"); //Thingspeak write api key
  StoreString(180,"aaa"); //Thingspeak channel id
+ StoreString(210,"-15");
+ EEPROM.put(230,0);
+ EEPROM.put(231,30);
  EEPROM.commit();
+delay(1000);
 */
-
   samplingperiod = readStoredbyte(7);
   averageperiod = readStoredbyte(8);
 
@@ -232,14 +243,22 @@ delay(1000);
   flagCloud = readStoredbyte(32);
 
   ssid1 = readStoredString(40);
+  Serial.println("SSID "+ssid1);
   pwd1 = readStoredString(60);
+  Serial.println("PWD "+pwd1);
   ssid2 = readStoredString(80);
   pwd2 = readStoredString(100);
   AP_ssid = readStoredString(120);
   AP_pwd = readStoredString(140);
   myWriteAPIKey = readStoredString(160);
   myChannelNumber = readStoredString(180).toInt();
-
+  
+  cloudcond = readStoredString(210).toInt();
+  Serial.println("Cloud condition is"+String(cloudcond));
+  raincond = readStoredbyte(230);
+  Serial.println("Rain condition is"+String(raincond));
+  windcond = readStoredbyte(231);
+  Serial.println("Wind condition is"+String(windcond));
 
   pinMode(RAINPIN, INPUT);
 
@@ -258,6 +277,48 @@ delay(1000);
   
   Serial.print("Connected to network with IP address: ");
   Serial.println(WiFi.localIP());  // show IP address that the ESP32 has received from router
+
+//========== OTA Server initialization========
+
+    /*use mdns for host name resolution*/
+  if (!MDNS.begin(host)) { //http://esp32.local
+    Serial.println("Error setting up MDNS responder!");
+    while (1) {
+      delay(1000);
+    }
+  }
+  Serial.println("mDNS responder started");
+
+    serverOTA.on("/", HTTP_GET, []() {
+    serverOTA.sendHeader("Connection", "close");
+    serverOTA.send(200, "text/html", serverIndex);
+  });
+  /*handling uploading firmware file */
+  serverOTA.on("/update", HTTP_POST, []() {
+    serverOTA.sendHeader("Connection", "close");
+    serverOTA.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
+    ESP.restart();
+  }, []() {
+    HTTPUpload& upload = serverOTA.upload();
+    if (upload.status == UPLOAD_FILE_START) {
+      Serial.printf("Update: %s\n", upload.filename.c_str());
+      if (!Update.begin(UPDATE_SIZE_UNKNOWN)) { //start with max available size
+        Update.printError(Serial);
+      }
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+      /* flashing firmware to ESP*/
+      if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+        Update.printError(Serial);
+      }
+    } else if (upload.status == UPLOAD_FILE_END) {
+      if (Update.end(true)) { //true to set the size to the current progress
+        Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
+      } else {
+        Update.printError(Serial);
+      }
+    }
+  });
+  serverOTA.begin();
   //=============================
 
   //Initializing i2c bus with sht31 sensor-------------
@@ -296,19 +357,35 @@ delay(1000);
 
   _ascomserver->on("/", get_setup);
   _ascomserver->on("/setup", get_setup);
-  // // handle Management requests
+  // handle Management requests
   _ascomserver->on("/management/apiversions", get_man_version);
   _ascomserver->on("/management/v1/description", get_man_description);
   _ascomserver->on("/management/v1/configureddevices", get_man_configureddevices);
-  // // handle ASCOM driver client requests
+  // handle Common API
   // _ascomserver->on("/setup/v1/observingconditions/0/setup", HTTP_GET, ascomget_observingconditionssetup);
   // _ascomserver->on("/setup/v1/observingconditions/0/setup", HTTP_POST, ascomget_observingconditionssetup);
   _ascomserver->on("/api/v1/observingconditions/0/connected", HTTP_PUT, set_connected);
-  _ascomserver->on("/api/v1/observingconditions/0/interfaceversion", HTTP_GET, get_interfaceversion);
-  _ascomserver->on("/api/v1/observingconditions/0/name", HTTP_GET, get_name);
+  _ascomserver->on("/api/v1/safetymonitor/0/connected", HTTP_PUT, set_connected);
+  _ascomserver->on("/api/v1/observingconditions/0/connect", HTTP_PUT, set_connect);
+  _ascomserver->on("/api/v1/safetymonitor/0/connect", HTTP_PUT, set_connect);
+  _ascomserver->on("/api/v1/observingconditions/0/disconnect", HTTP_PUT, set_disconnect);  
+  _ascomserver->on("/api/v1/safetymonitor/0/disconnect", HTTP_PUT, set_disconnect);
+  _ascomserver->on("/api/v1/observingconditions/0/connected", HTTP_GET, get_connected);
+  _ascomserver->on("/api/v1/safetymonitor/0/connected", HTTP_GET, get_connected);
+  _ascomserver->on("/api/v1/observingconditions/0/connecting", HTTP_GET, get_connecting);
+  _ascomserver->on("/api/v1/safetymonitor/0/connecting", HTTP_GET, get_connecting);
+  _ascomserver->on("/api/v1/observingconditions/0/interfaceversion", HTTP_GET, get_interfaceversion1);
+  _ascomserver->on("/api/v1/safetymonitor/0/interfaceversion", HTTP_GET, get_interfaceversion2);
+  _ascomserver->on("/api/v1/observingconditions/0/name", HTTP_GET, get_name1);
+  _ascomserver->on("/api/v1/safetymonitor/0/name", HTTP_GET, get_name2);
   _ascomserver->on("/api/v1/observingconditions/0/description", HTTP_GET, get_description);
+  _ascomserver->on("/api/v1/safetymonitor/0/description", HTTP_GET, get_description);
   _ascomserver->on("/api/v1/observingconditions/0/driverinfo", HTTP_GET, get_driverinfo);
+  _ascomserver->on("/api/v1/safetymonitor/0/driverinfo", HTTP_GET, get_driverinfo);
   _ascomserver->on("/api/v1/observingconditions/0/driverversion", HTTP_GET, get_driverversion);
+  _ascomserver->on("/api/v1/safetymonitor/0/driverversion", HTTP_GET, get_driverversion);
+
+    // handle Observing Condition API
   _ascomserver->on("/api/v1/observingconditions/0/averageperiod", HTTP_GET, get_averageperiod);
   _ascomserver->on("/api/v1/observingconditions/0/averageperiod", HTTP_PUT, set_averageperiod);
   //_ascomserver->on("/api/v1/observingconditions/0/cloudcover", HTTP_GET, get_cloudcover);
@@ -323,6 +400,10 @@ delay(1000);
   _ascomserver->on("/api/v1/observingconditions/0/supportedactions", HTTP_GET, get_supportedactions);
   _ascomserver->on("/api/v1/observingconditions/0/sensordescription", HTTP_GET, get_sensordescription);
   _ascomserver->on("/api/v1/observingconditions/0/timesincelastupdate", HTTP_GET, get_timesincelastupdate);
+
+  // handle Safety Monitor API
+  _ascomserver->on("/api/v1/safetymonitor/0/issafe", HTTP_GET, get_safe);
+
   // // handle url not found 404
   _ascomserver->onNotFound(get_notfound);
   _ascomserver->begin();
@@ -344,6 +425,8 @@ delay(1000);
 //====================================MAIN LOOP====================================
 void loop() {
 
+  serverOTA.handleClient();
+  delay(1);
 
   Measure();
   Mean();
@@ -568,13 +651,13 @@ void UpdateWebpageReadings() {
     StaticJsonDocument<300> doc;               // create a JSON container
     JsonObject object = doc.to<JsonObject>();  // create a JSON Object
     object["answer"] = "SEND_READINGS";
-    object["tmp"] = String(temperature) + "°C";  // write data into the JSON object -> I used "rand1" and "rand2" here, but you can use anything else
-    object["hum"] = String(humidity) + "%";
-    object["dew"] = String(dewpoint) + "°C";
-    object["cloud"] = String(skytemperature) + "°C";
+    object["tmp"] = String(temperature);  // write data into the JSON object -> I used "rand1" and "rand2" here, but you can use anything else
+    object["hum"] = String(humidity);
+    object["dew"] = String(dewpoint);
+    object["cloud"] = String(skytemperature);
     object["rain"] = String(rainrate);
-    object["sqm"] = String(skyquality) + "mag/arcsec²";
-    object["wind"] = String(windspeed) + "km/h";
+    object["sqm"] = String(skyquality);
+    object["wind"] = String(windspeed);
     serializeJson(doc, jsonString);  // convert JSON object to string
     //Serial.println(jsonString);                       // print JSON string to console for debug purposes (you can comment this out)
     webSocket.broadcastTXT(jsonString);  // send JSON string to clients
@@ -607,6 +690,9 @@ void UpdateWebpageParam() {
   object["channelid"] = String(myChannelNumber);
   object["ssid"] = ssid1;
   object["pwd"] = pwd1;
+  object["cloudcond"] = String(cloudcond);
+  object["raincond"] = String(raincond);
+  object["windcond"] = String(windcond);
   //object["apssid"] = AP_ssid;
   //object["appwd"] = AP_pwd;
   serializeJson(doc, jsonString);      // convert JSON object to string
@@ -694,6 +780,13 @@ void webSocketEvent(byte num, WStype_t type, uint8_t* payload, size_t length) { 
           data = doc["_channelid"].as<String>();
           if ((data != "") && (data != String(myChannelNumber))) StoreString(180, data);
 
+          data = doc["_cloudcond"].as<String>();
+          if ((data != "") && (data != String(cloudcond))) StoreString(210, data);
+          data = doc["_raincond"].as<String>();
+          if ((data != "") && (data != String(raincond))) EEPROM.put(230, byte(abs(data.toInt())));
+          data = doc["_windcond"].as<String>();
+          if ((data != "") && (data != String(windcond))) EEPROM.put(231, byte(abs(data.toInt())));
+
           EEPROM.commit();
           delay(1000);
           ESP.restart();
@@ -741,7 +834,7 @@ void checkASCOMALPACADiscovery() {
       return;
     }
 
-    String strresponse = "{\"alpacaport\":" + String(4040) + "}";
+    String strresponse = "{\"AlpacaPort\": " + String(4040) + "}";
     uint8_t response[36] = { 0 };
     len = strresponse.length();
 
@@ -793,6 +886,12 @@ void getURLParameters() {
         _ASCOMConnectedState = 0;
       }
     }
+    /*if (str.equals("connect")) {
+        _ASCOMConnectedState = 1;
+    }
+    if (str.equals("disconnect")) {
+        _ASCOMConnectedState = 0;
+    }*/
     if (str.equals("sensorname")) {
       String strtmp = _ascomserver->arg(i);
       for (int i = 0; i < len; i++) {
@@ -883,8 +982,11 @@ void get_man_configureddevices() {
   _ASCOMErrorMessage = "";
   getURLParameters();
   // addclientinfo adds clientid, clienttransactionid, servertransactionid, errornumber, errormessage and terminating }
-  jsonretstr = "{\"Value\":[{\"DeviceName\":" + String(ASCOMNAME) + ",\"DeviceType\":\"observingconditions\",\"DeviceNumber\":0,\"UniqueID\":\"" + String(ASCOMGUID) + "\"}]," + addclientinfo(jsonretstr);
+  //jsonretstr = "{\"Value\": [{\"DeviceName\": " + String(ASCOMNAME1) + ",\"DeviceType\": \"ObservingConditions\",\"DeviceNumber\": 0,\"UniqueID\": \"" + String(ASCOMGUID1) + "\"}]," + addclientinfo(jsonretstr);
 
+  jsonretstr = "{\"Value\": [{\"DeviceName\": " + String(ASCOMNAME1) + ",\"DeviceType\": \"ObservingConditions\",\"DeviceNumber\": 0,\"UniqueID\": \"" + String(ASCOMGUID1) + "\"},{\"DeviceName\": " + String(ASCOMNAME2) + ",\"DeviceType\": \"SafetyMonitor\",\"DeviceNumber\": 0,\"UniqueID\": \"" + String(ASCOMGUID2) + "\"}]," + addclientinfo(jsonretstr);
+
+  
   // sendreply builds http header, sets content type, and then sends jsonretstr
   sendreply(NORMALWEBPAGE, JSONPAGETYPE, jsonretstr);
 }
@@ -892,7 +994,7 @@ void get_man_configureddevices() {
 // ----------------------------------------------------------------------
 // get_interfaceversion()
 // ----------------------------------------------------------------------
-void get_interfaceversion() {
+void get_interfaceversion1() {
   // curl -X GET "http://192.168.2.128:4040/api/v1/observingconditions/0/interfaceversion?ClientID=1&ClientTransactionID=1234" -H  "accept: application/json"
   // response {"Value":2,"ClientID":1,"ClientTransactionID":1234,"ServerTransactionID":1,"Errornumber":"0","Errormessage":"ok"}
 
@@ -905,7 +1007,26 @@ void get_interfaceversion() {
   // addclientinfo adds clientid, clienttransactionid, servertransactionid, errornumber, errormessage and terminating }
   //jsonretstr = "{\"Value\":2," + addclientinfo( jsonretstr );
   //jsonretstr = "{ \"Value\":2, \"Errornumber\":0, \"Errormessage\":\"\" }";
-  jsonretstr = "{\"Value\":" + String(1) + ",\"Errornumber\":0,\"Errormessage\":\"\" }";
+  jsonretstr = "{\"Value\":" + String(2) + ",\"Errornumber\":0,\"Errormessage\":\"\" }";
+
+  // sendreply builds http header, sets content type, and then sends jsonretstr
+  sendreply(NORMALWEBPAGE, JSONPAGETYPE, jsonretstr);
+}
+
+void get_interfaceversion2() {
+  // curl -X GET "http://192.168.2.128:4040/api/v1/observingconditions/0/interfaceversion?ClientID=1&ClientTransactionID=1234" -H  "accept: application/json"
+  // response {"Value":2,"ClientID":1,"ClientTransactionID":1234,"ServerTransactionID":1,"Errornumber":"0","Errormessage":"ok"}
+
+  String jsonretstr = "";
+
+  _ASCOMServerTransactionID++;
+  _ASCOMErrorNumber = 0;
+  _ASCOMErrorMessage = "";
+  getURLParameters();
+  // addclientinfo adds clientid, clienttransactionid, servertransactionid, errornumber, errormessage and terminating }
+  //jsonretstr = "{\"Value\":2," + addclientinfo( jsonretstr );
+  //jsonretstr = "{ \"Value\":2, \"Errornumber\":0, \"Errormessage\":\"\" }";
+  jsonretstr = "{\"Value\":" + String(3) + ",\"Errornumber\":0,\"Errormessage\":\"\" }";
 
   // sendreply builds http header, sets content type, and then sends jsonretstr
   sendreply(NORMALWEBPAGE, JSONPAGETYPE, jsonretstr);
@@ -934,7 +1055,7 @@ void get_description() {
 // ----------------------------------------------------------------------
 // get_name()
 // ----------------------------------------------------------------------
-void get_name() {
+void get_name1() {
   // curl -X GET "192.168.2.128:4040/api/v1/observingconditions/0/name?ClientID=1&ClientTransactionID=1234" -H  "accept: application/json"
   // {"Value":"myFP2ESPASCOMR","ClientID":1,"ClientTransactionID":1234,"ServerTransactionID":2,"Errornumber":"0","Errormessage":""myFP2ESPASCOMR""}
 
@@ -945,7 +1066,27 @@ void get_name() {
   _ASCOMErrorMessage = "";
   getURLParameters();
   // addclientinfo adds clientid, clienttransactionid, servertransactionid, errornumber, errormessage and terminating }
-  jsonretstr = "{\"Value\":" + String(ASCOMNAME) + ",\"Errornumber\":0,\"Errormessage\":\"\" }";
+  jsonretstr = "{\"Value\":" + String(ASCOMNAME1) + ",\"Errornumber\":0,\"Errormessage\":\"\" }";
+
+  // sendreply builds http header, sets content type, and then sends jsonretstr
+  sendreply(NORMALWEBPAGE, JSONPAGETYPE, jsonretstr);
+}
+
+// ----------------------------------------------------------------------
+// get_name()
+// ----------------------------------------------------------------------
+void get_name2() {
+  // curl -X GET "192.168.2.128:4040/api/v1/observingconditions/0/name?ClientID=1&ClientTransactionID=1234" -H  "accept: application/json"
+  // {"Value":"myFP2ESPASCOMR","ClientID":1,"ClientTransactionID":1234,"ServerTransactionID":2,"Errornumber":"0","Errormessage":""myFP2ESPASCOMR""}
+
+  String jsonretstr = "";
+
+  _ASCOMServerTransactionID++;
+  _ASCOMErrorNumber = 0;
+  _ASCOMErrorMessage = "";
+  getURLParameters();
+  // addclientinfo adds clientid, clienttransactionid, servertransactionid, errornumber, errormessage and terminating }
+  jsonretstr = "{\"Value\":" + String(ASCOMNAME2) + ",\"Errornumber\":0,\"Errormessage\":\"\" }";
 
   // sendreply builds http header, sets content type, and then sends jsonretstr
   sendreply(NORMALWEBPAGE, JSONPAGETYPE, jsonretstr);
@@ -1010,7 +1151,85 @@ void set_connected() {
   sendreply(NORMALWEBPAGE, JSONPAGETYPE, jsonretstr);
 }
 
+// ----------------------------------------------------------------------
+// connect()
+// ----------------------------------------------------------------------
+void set_connect() {
+  // curl -X PUT 192.168.2.128:4040/api/v1/observingconditions/0/connected -H  "accept: application/json" -H  "Content-Type: application/x-www-form-urlencoded" -d "Connected=true&ClientID=1&ClientTransactionID=2"
+  // response { "Errornumber":0, "Errormessage":"" }
 
+  String jsonretstr = "";
+
+  _ASCOMServerTransactionID++;
+  _ASCOMErrorNumber = 0;
+  _ASCOMErrorMessage = "";
+  getURLParameters();  
+  _ASCOMConnectedState=1;
+  jsonretstr = "{ \"Errornumber\":0, \"Errormessage\":\"\" }";
+
+  // sendreply builds http header, sets content type, and then sends jsonretstr
+  sendreply(NORMALWEBPAGE, JSONPAGETYPE, jsonretstr);
+}
+
+// ----------------------------------------------------------------------
+// disconnect()
+// ----------------------------------------------------------------------
+void set_disconnect() {
+  // curl -X PUT 192.168.2.128:4040/api/v1/observingconditions/0/connected -H  "accept: application/json" -H  "Content-Type: application/x-www-form-urlencoded" -d "Connected=true&ClientID=1&ClientTransactionID=2"
+  // response { "Errornumber":0, "Errormessage":"" }
+
+  String jsonretstr = "";
+
+  _ASCOMServerTransactionID++;
+  _ASCOMErrorNumber = 0;
+  _ASCOMErrorMessage = "";
+  getURLParameters();  
+  _ASCOMConnectedState=0;
+  jsonretstr = "{ \"Errornumber\":0, \"Errormessage\":\"\" }";
+
+  // sendreply builds http header, sets content type, and then sends jsonretstr
+  sendreply(NORMALWEBPAGE, JSONPAGETYPE, jsonretstr);
+}
+
+// ----------------------------------------------------------------------
+// get_connected()
+// ----------------------------------------------------------------------
+void get_connected() {
+  // curl -X PUT 192.168.2.128:4040/api/v1/observingconditions/0/connected -H  "accept: application/json" -H  "Content-Type: application/x-www-form-urlencoded" -d "Connected=true&ClientID=1&ClientTransactionID=2"
+  // response { "Errornumber":0, "Errormessage":"" }
+
+  String jsonretstr = "";
+
+  _ASCOMServerTransactionID++;
+  _ASCOMErrorNumber = 0;
+  _ASCOMErrorMessage = "";
+  getURLParameters();  // checks connected param and sets _ASCOMConnectedState
+  if(_ASCOMConnectedState==0)  jsonretstr = "{\"Value\": false,\"Errornumber\":0,\"Errormessage\":\"\" }";
+  else if(_ASCOMConnectedState==1)  jsonretstr = "{\"Value\": true,\"Errornumber\":0,\"Errormessage\":\"\" }";
+//jsonretstr = "{\"Value\": true,\"Errornumber\":0,\"Errormessage\":\"\" }";
+  // sendreply builds http header, sets content type, and then sends jsonretstr
+  sendreply(NORMALWEBPAGE, JSONPAGETYPE, jsonretstr);
+}
+
+// ----------------------------------------------------------------------
+// get_connecting()
+// ----------------------------------------------------------------------
+void get_connecting() {
+  // curl -X PUT 192.168.2.128:4040/api/v1/observingconditions/0/connected -H  "accept: application/json" -H  "Content-Type: application/x-www-form-urlencoded" -d "Connected=true&ClientID=1&ClientTransactionID=2"
+  // response { "Errornumber":0, "Errormessage":"" }
+
+  String jsonretstr = "";
+
+  _ASCOMServerTransactionID++;
+  _ASCOMErrorNumber = 0;
+  _ASCOMErrorMessage = "";
+  getURLParameters();  // checks connected param and sets _ASCOMConnectedState
+
+  jsonretstr = "{\"Value\": false,\"Errornumber\":0,\"Errormessage\":\"\" }";
+
+  // sendreply builds http header, sets content type, and then sends jsonretstr
+  sendreply(NORMALWEBPAGE, JSONPAGETYPE, jsonretstr);
+}
 
 // ----------------------------------------------------------------------
 // addclientinfo
@@ -1276,5 +1495,29 @@ void get_timesincelastupdate() {
     get_notfound();
   }
 }
+
+void get_safe() {
+  String jsonretstr = "";
+
+  _ASCOMServerTransactionID++;
+  _ASCOMErrorNumber = 0;
+  _ASCOMErrorMessage = "";
+  getURLParameters();
+
+bool safecloud=false;
+bool saferain=false;
+bool safewind=false;
+bool safe=false;
+    if(skytemperature <= cloudcond)safecloud=true;
+    if(rainrate == raincond)saferain=true;
+    if(windspeed <= windcond)safewind=true;
+    if(safecloud && saferain && safewind) safe=true;
+    // addclientinfo adds clientid, clienttransactionid, servertransactionid, errornumber, errormessage and terminating }
+    if(safe) jsonretstr = "{\"Value\":true,\"ErrorNumber\":0,\"ErrorMessage\":\"\" }";
+        else jsonretstr = "{\"Value\":false,\"ErrorNumber\":0,\"ErrorMessage\":\"\" }";
+    // sendreply builds http header, sets content type, and then sends jsonretstr
+    sendreply(NORMALWEBPAGE, JSONPAGETYPE, jsonretstr);
+  } 
+
 
 
